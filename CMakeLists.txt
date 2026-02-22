@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.15)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+project(vigil C)
+find_library(PCAP_LIB pcap)
+add_executable(vigil src/core/capture.c src/core/parse.c)
+target_link_libraries(vigil ${PCAP_LIB})
+target_include_directories(vigil PRIVATE include)
