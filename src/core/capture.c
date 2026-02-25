@@ -1,17 +1,16 @@
 #include <arpa/inet.h>
 #include <pcap.h>
 #include <stdio.h>
-#include <sys/types.h>
+#include <string.h>
 
-#include "vigil/arena.h"
 #include "vigil/hashmap.h"
 #include "vigil/parse.h"
 
 /* Capture config */
 #define SNAPLEN 262144
 #define PROMISC 1
-#define CAPTURE_TIMEOUT 1000     // 1s
-#define ARENA_SIZE (1024 * 256)  // 256KB
+#define CAPTURE_TIMEOUT 1000     /* 1s */
+#define ARENA_SIZE (1024 * 256)  /* 256KB */
 #define TABLE_CAPACITY 1024
 
 /* EtherType constants */
@@ -40,7 +39,7 @@ void print_mac(const char* label, const uint8_t* mac) {
 
 /* ── Packet callback ───────────────────────────────────────────────── */
 
-// TODO: Add a flag to switch between verbose and oneliner output
+/* TODO: Add a flag to switch between verbose and oneliner output */
 
 void parse_packet(
     u_char* user, const struct pcap_pkthdr* header, const u_char* packet
@@ -58,8 +57,8 @@ void parse_packet(
             printf("[IPv4]  SRC: %s", inet_ntoa(ip_pkt->ip_src));
             printf(" -> DST: %s\n", inet_ntoa(ip_pkt->ip_dst));
 
-            // Zero padding bytes so memcmp in the hash map doesn't
-            // mismatch on garbage between struct fields
+            /* Zero padding bytes so memcmp doesn't mismatch on
+             * garbage between struct fields */
             FlowKey key;
             memset(&key, 0, sizeof(FlowKey));
             key.src_ip = ip_pkt->ip_src.s_addr;

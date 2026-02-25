@@ -1,11 +1,13 @@
 #pragma once
-#include <stdlib.h>
 #include <stdint.h>
 #include <sys/time.h>
-#include <string.h>
 
 #include "arena.h"
 
+/* Open-addressed hash map (linear probing) for tracking network flows.
+ * All memory comes from the arena — no per-entry malloc. */
+
+/* 5-tuple that uniquely identifies a connection */
 typedef struct {
     uint32_t src_ip;
     uint32_t dst_ip;
@@ -14,7 +16,7 @@ typedef struct {
     uint16_t dst_port;
 } FlowKey;
 
-
+/* Per-flow statistics */
 typedef struct {
   uint64_t sent_packets;
   uint64_t total_bytes;
@@ -22,12 +24,14 @@ typedef struct {
   struct timeval last_seen;
 } FlowValue;
 
+/* Single slot in the hash table */
 typedef struct {
   FlowKey key;
   FlowValue value;
   uint8_t occupied;
 } FlowEntry;
 
+/* Top-level table handle */
 typedef struct {
   FlowEntry* entries;
   uint64_t capacity;
