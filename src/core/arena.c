@@ -29,3 +29,7 @@ void* arena_alloc(Arena* arena, size_t size) {
     arena->offset += size;
     return ptr;
 }
+
+void arena_free(Arena* arena) {
+    free(arena);
+}

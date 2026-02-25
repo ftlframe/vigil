@@ -32,7 +32,7 @@ typedef struct {
 } FlowEntry;
 
 /* Top-level table handle */
-typedef struct {
+typedef struct FlowTable {
   FlowEntry* entries;
   uint64_t capacity;
   uint64_t count;
