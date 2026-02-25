@@ -24,8 +24,8 @@ Requires `libpcap-devel` and root/CAP_NET_RAW for raw capture.
 
 - [x] Raw packet capture + hex dump
 - [x] Ethernet / IPv4 / TCP / UDP header parsing
-- [ ] Hash map + memory pool primitives (C)
-- [ ] Connection tracking table (5-tuple keyed)
+- [x] Hash map + memory pool primitives (C)
+- [x] Connection tracking table (5-tuple keyed)
 - [ ] Stable C API surface (`include/vigil/`)
 - [ ] C++ consumer + ncurses dashboard
 - [ ] Protocol state machines (MQTT, HTTP, DNS)
