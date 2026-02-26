@@ -1,6 +1,8 @@
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
-#include <pcap.h>
+
+#define VIGIL_ERRBUF_SIZE 256
 
 typedef struct {
   char* interface_name;
@@ -8,23 +10,14 @@ typedef struct {
   uint32_t promiscuous;
   uint32_t capture_timeout;
   int verbose;
-  char errbuf[PCAP_ERRBUF_SIZE];
+  char errbuf[VIGIL_ERRBUF_SIZE];
 } CaptureConfig;
 
-/* Forward declarations */
-typedef struct Arena Arena;
-typedef struct FlowTable FlowTable;
+/* Opaque handle — struct defined in capture.c */
+typedef struct CaptureHandle CaptureHandle;
 
-typedef struct {
-  Arena* arena;
-  FlowTable* flow_table;
-  pcap_t* pcap;
-  int verbose;  /* copied from config at open time */
-} CaptureHandle;
-
-
+int capture_default_device(char* name, size_t len, char* errbuf);
 CaptureHandle* capture_open(CaptureConfig* config);
-void capture_stop(CaptureHandle* handle);
-
 int capture_start(CaptureHandle* handle);
+void capture_stop(CaptureHandle* handle);
 void capture_close(CaptureHandle* handle);

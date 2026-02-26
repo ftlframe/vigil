@@ -1,12 +1,11 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "vigil/capture.h"
 
 /* ── Printing helpers ──────────────────────────────────────────────── */
 
-void print_hex(const u_char* packet, int caplen) {
+void print_hex(const unsigned char* packet, int caplen) {
     for (int i = 0; i < caplen; i++) {
         if (i % 16 == 0) printf("%04x: ", i & ~0xF);
         printf("%02x ", packet[i]);
@@ -25,7 +24,7 @@ void print_mac(const char* label, const uint8_t* mac) {
 
 int main(int argc, char* argv[]) {
     char* interface_name = NULL;
-    int should_free = 0;
+    char devbuf[256];
     int verbose = 0;
 
     for (int i = 1; i < argc; i++) {
@@ -36,15 +35,12 @@ int main(int argc, char* argv[]) {
     }
 
     if (!interface_name) {
-        pcap_if_t* devs;
-        char errbuf[PCAP_ERRBUF_SIZE];
-        if (pcap_findalldevs(&devs, errbuf) == -1 || !devs) {
+        char errbuf[VIGIL_ERRBUF_SIZE];
+        if (capture_default_device(devbuf, sizeof(devbuf), errbuf) == -1) {
             fprintf(stderr, "No interfaces found: %s\n", errbuf);
             return 1;
         }
-        interface_name = strdup(devs->name);
-        should_free = 1;
-        pcap_freealldevs(devs);
+        interface_name = devbuf;
         printf("Auto-selected interface: %s\n", interface_name);
     }
 
@@ -64,6 +60,5 @@ int main(int argc, char* argv[]) {
 
     capture_start(handle);
     capture_close(handle);
-    if (should_free) free(interface_name);
     return 0;
 }

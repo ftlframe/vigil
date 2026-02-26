@@ -8,6 +8,14 @@
 #include "vigil/hashmap.h"
 #include "vigil/parse.h"
 
+/* CaptureHandle — opaque to consumers, defined only here */
+struct CaptureHandle {
+    Arena* arena;
+    FlowTable* flow_table;
+    pcap_t* pcap;
+    int verbose;
+};
+
 /* Capture config */
 #define ARENA_SIZE (1024 * 256) /* 256KB */
 #define TABLE_CAPACITY 1024
@@ -119,4 +127,14 @@ int capture_start(CaptureHandle* handle) {
 void capture_close(CaptureHandle* handle) {
     pcap_close(handle->pcap);
     arena_free(handle->arena);
+}
+
+int capture_default_device(char* name, size_t len, char* errbuf) {
+    pcap_if_t* devs;
+    if (pcap_findalldevs(&devs, errbuf) == -1 || !devs) {
+        return -1;
+    }
+    snprintf(name, len, "%s", devs->name);
+    pcap_freealldevs(devs);
+    return 0;
 }
