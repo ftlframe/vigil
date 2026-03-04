@@ -1,6 +1,5 @@
 #pragma once
 #include <stdint.h>
-#include <sys/time.h>
 #include <time.h>
 
 #include "arena.h"
@@ -47,12 +46,7 @@ typedef struct FlowTable {
 } FlowTable;
 
 FlowTable *flowtable_init(Arena *arena, size_t capacity);
-FlowValue *flowtable_put(FlowTable *table, FlowKey key);
+FlowValue *flowtable_put(FlowTable *table, FlowKey key, struct timespec now);
 FlowValue *flowtable_get(FlowTable *table, FlowKey key);
-uint32_t flowtable_hash(FlowKey key);
+uint64_t flowtable_hash(FlowKey key);
 void flowtable_evict(FlowTable *table);
-static inline int flowkey_eq(const FlowKey *a, const FlowKey *b) {
-  return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip &&
-         a->protocol == b->protocol && a->src_port == b->src_port &&
-         a->dst_port == b->dst_port;
-}

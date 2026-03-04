@@ -1,15 +1,23 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "vigil/hashmap.h"
 
-/* FNV-1a 32-bit hash constants */
-#define FNV_OFFSET_BASIS 2166136261
-#define FNV_PRIME 16777619
+/* FNV-1a 64-bit hash constants */
+#define FNV_OFFSET_BASIS 14695981039346656037ULL
+#define FNV_PRIME 1099511628211ULL
 
 /* Seconds before an idle flow is eligible for eviction */
 #define FLOW_TIMEOUT 60
+
+/* Helper function to compare field by field equality */
+static int flowkey_eq(const FlowKey *a, const FlowKey *b) {
+  return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip &&
+         a->protocol == b->protocol && a->src_port == b->src_port &&
+         a->dst_port == b->dst_port;
+}
 
 /* ── Allocation ───────────────────────────────────────────────────── */
 
@@ -36,8 +44,8 @@ FlowTable *flowtable_init(Arena *arena, size_t capacity) {
 /* ── Hashing ──────────────────────────────────────────────────────── */
 
 /* FNV-1a over the raw bytes of a FlowKey */
-uint32_t flowtable_hash(FlowKey key) {
-  uint32_t hash = FNV_OFFSET_BASIS;
+uint64_t flowtable_hash(FlowKey key) {
+  uint64_t hash = FNV_OFFSET_BASIS;
   hash ^= key.src_ip;
   hash *= FNV_PRIME;
   hash ^= key.dst_ip;
@@ -65,7 +73,7 @@ void flowtable_evict(FlowTable *table) {
     if (entry->state != SLOT_OCCUPIED)
       continue;
 
-    long elapsed = now.tv_sec - entry->value.last_seen.tv_sec;
+    time_t elapsed = now.tv_sec - entry->value.last_seen.tv_sec;
     if (elapsed > FLOW_TIMEOUT) {
       entry->state = SLOT_TOMBSTONE;
       table->count--;
@@ -78,26 +86,17 @@ void flowtable_evict(FlowTable *table) {
 /* Insert or update a flow. Returns pointer to the FlowValue so the
  * caller can fill in packet counts, timestamps, etc.
  * Linear probing with tombstone reuse; returns NULL when table is full. */
-FlowValue *flowtable_put(FlowTable *table, FlowKey key) {
-  /* Evict stale flows when load exceeds 75% (integer-only check)
-   * TODO: this multiplication can overflow for large uint64_t capacities.
-   *       Currently bounded by arena size (~3200 max entries), but fix
-   *       before allowing runtime-configurable capacity. */
-  if (table->count * 4 > table->capacity * 3)
+FlowValue *flowtable_put(FlowTable *table, FlowKey key, struct timespec now) {
+  /* Evict stale flows when load exceeds 75% (integer-only check) */
+  if (table->count > table->capacity * 3 / 4)
     flowtable_evict(table);
 
-  /* TODO: timestamp is also read in capture.c for last_seen — two
-   *       clock_gettime calls per packet for the same logical timestamp.
-   *       Consider passing the timestamp from the caller instead. */
-  struct timespec now;
-  clock_gettime(CLOCK_MONOTONIC, &now);
+  uint64_t hash = flowtable_hash(key);
+  uint64_t index = hash & (table->capacity - 1);
 
-  uint32_t hash = flowtable_hash(key);
-  uint32_t index = hash & (table->capacity - 1);
-
-  int first_tombstone = -1;
-  for (uint32_t i = 0; i < table->capacity; i++) {
-    uint32_t probe = (index + i) & (table->capacity - 1);
+  int64_t first_tombstone = -1;
+  for (uint64_t i = 0; i < table->capacity; i++) {
+    uint64_t probe = (index + i) & (table->capacity - 1);
     FlowEntry *entry = &table->entries[probe];
 
     switch (entry->state) {
@@ -111,10 +110,13 @@ FlowValue *flowtable_put(FlowTable *table, FlowKey key) {
       entry->key = key;
       memset(&entry->value, 0, sizeof(FlowValue));
       entry->value.first_seen = now;
+      entry->value.last_seen = now;
       return &entry->value;
     case SLOT_OCCUPIED:
-      if (flowkey_eq(&key, &entry->key))
+      if (flowkey_eq(&key, &entry->key)) {
+        entry->value.last_seen = now;
         return &entry->value;
+      }
       continue;
     case SLOT_TOMBSTONE:
       /* Remember first reclaimable slot, but keep probing
@@ -132,11 +134,11 @@ FlowValue *flowtable_put(FlowTable *table, FlowKey key) {
 /* Lookup a flow by key. Returns pointer to FlowValue or NULL.
  * Skips over tombstones; stops at the first empty slot. */
 FlowValue *flowtable_get(FlowTable *table, FlowKey key) {
-  uint32_t hash = flowtable_hash(key);
-  uint32_t index = hash & (table->capacity - 1);
+  uint64_t hash = flowtable_hash(key);
+  uint64_t index = hash & (table->capacity - 1);
 
-  for (uint32_t i = 0; i < table->capacity; i++) {
-    uint32_t probe = (index + i) & (table->capacity - 1);
+  for (uint64_t i = 0; i < table->capacity; i++) {
+    uint64_t probe = (index + i) & (table->capacity - 1);
     FlowEntry *entry = &table->entries[probe];
 
     switch (entry->state) {
