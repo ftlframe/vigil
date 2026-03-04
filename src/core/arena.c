@@ -1,8 +1,9 @@
 #include "vigil/arena.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 
-#define ALIGN sizeof(void *)
+#define ALIGN _Alignof(max_align_t)
 
 Arena *arena_init(size_t size) {
   /* Single allocation: Arena struct + pool in one contiguous block */
