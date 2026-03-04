@@ -64,9 +64,10 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
 
     struct ip *ip_pkt = parse_ip(packet);
 
-    /* TODO: validate ip_hl >= 5 (minimum valid IP header).
-     *       ip_hl is attacker-controlled (4-bit, max 15). Values < 5
-     *       would point TCP/UDP parsing into the IP header itself. */
+    /* FIXME: validate ip_hl >= 5 (minimum valid IP header).
+     *        ip_hl is attacker-controlled (4-bit, max 15). Values < 5
+     *        would point TCP/UDP parsing into the IP header itself,
+     *        reading garbage into the flow key. */
 
     if (cap->verbose) {
       /* TODO: replace inet_ntoa with inet_ntop — inet_ntoa uses a
