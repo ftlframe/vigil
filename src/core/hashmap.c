@@ -79,10 +79,16 @@ void flowtable_evict(FlowTable *table) {
  * caller can fill in packet counts, timestamps, etc.
  * Linear probing with tombstone reuse; returns NULL when table is full. */
 FlowValue *flowtable_put(FlowTable *table, FlowKey key) {
-  /* Evict stale flows when load exceeds 75% (integer-only check) */
+  /* Evict stale flows when load exceeds 75% (integer-only check)
+   * TODO: this multiplication can overflow for large uint64_t capacities.
+   *       Currently bounded by arena size (~3200 max entries), but fix
+   *       before allowing runtime-configurable capacity. */
   if (table->count * 4 > table->capacity * 3)
     flowtable_evict(table);
 
+  /* TODO: timestamp is also read in capture.c for last_seen — two
+   *       clock_gettime calls per packet for the same logical timestamp.
+   *       Consider passing the timestamp from the caller instead. */
   struct timespec now;
   clock_gettime(CLOCK_MONOTONIC, &now);
 

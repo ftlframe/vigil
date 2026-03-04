@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include <time.h>
 
 #include "vigil/hashmap.h"
@@ -63,7 +64,14 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
 
     struct ip *ip_pkt = parse_ip(packet);
 
+    /* TODO: validate ip_hl >= 5 (minimum valid IP header).
+     *       ip_hl is attacker-controlled (4-bit, max 15). Values < 5
+     *       would point TCP/UDP parsing into the IP header itself. */
+
     if (cap->verbose) {
+      /* TODO: replace inet_ntoa with inet_ntop — inet_ntoa uses a
+       *       static buffer and is not thread-safe (data race when
+       *       capture thread + analysis thread are added). */
       printf("[IPv4]  SRC: %s", inet_ntoa(ip_pkt->ip_src));
       printf(" -> DST: %s\n", inet_ntoa(ip_pkt->ip_dst));
     }
@@ -121,7 +129,7 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
     value->total_bytes += header->len;
 
     if (cap->verbose)
-      printf("[FLOW]  count: %lu\n", table->count);
+      printf("[FLOW]  count: %" PRIu64 "\n", table->count);
     break;
   }
   default:

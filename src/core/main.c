@@ -58,6 +58,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    /* TODO: add signal handler (SIGINT/SIGTERM) that calls capture_stop.
+     *       Currently capture_start blocks forever and Ctrl+C kills
+     *       without calling capture_close. */
     capture_start(handle);
     capture_close(handle);
     return 0;

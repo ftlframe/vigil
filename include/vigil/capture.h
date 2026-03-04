@@ -15,6 +15,11 @@ typedef struct {
 
 /* Opaque handle — struct defined in capture.c */
 typedef struct CaptureHandle CaptureHandle;
+
+/* TODO: FlowKey/FlowValue forward declarations here create coupling —
+ *       anyone using capture_foreach_flow must also include hashmap.h.
+ *       Consider moving the iterator API or defining a callback typedef
+ *       that doesn't expose flow internals. */
 typedef struct FlowKey FlowKey;
 typedef struct FlowValue FlowValue;
 

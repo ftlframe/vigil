@@ -15,6 +15,9 @@ Arena *arena_init(size_t size) {
   arena_ptr->size = size;
   arena_ptr->offset = 0;
 
+  /* TODO: add arena_reset(Arena*) — sets offset = 0 to reuse the pool.
+   *       Useful for periodic flow table rebuilds (compacting tombstones). */
+
   return arena_ptr;
 }
 
