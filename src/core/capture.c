@@ -1,7 +1,12 @@
 #include "vigil/capture.h"
 
 #include <arpa/inet.h>
+#include <net/ethernet.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <netinet/udp.h>
 #include <pcap.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -43,12 +48,19 @@ void capture_foreach_flow(CaptureHandle *handle,
  * builds a flow key, and upserts into the flow table. */
 static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
                          const u_char *packet) {
+
+  if (header->caplen < sizeof(struct ether_header))
+    return;
   CaptureHandle *cap = (CaptureHandle *)user;
   FlowTable *table = cap->flow_table;
+
   struct ether_header *eth_pkt = parse_ethernet(packet);
 
   switch (ntohs(eth_pkt->ether_type)) {
   case PKT_IPv4: {
+    if (header->caplen < sizeof(struct ether_header) + sizeof(struct iphdr))
+      return;
+
     struct ip *ip_pkt = parse_ip(packet);
 
     if (cap->verbose) {
@@ -56,15 +68,16 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
       printf(" -> DST: %s\n", inet_ntoa(ip_pkt->ip_dst));
     }
 
-    /* Zero padding bytes so memcmp doesn't mismatch on
-     * garbage between struct fields */
     FlowKey key;
-    memset(&key, 0, sizeof(FlowKey));
+    FlowValue *value;
     key.src_ip = ip_pkt->ip_src.s_addr;
     key.dst_ip = ip_pkt->ip_dst.s_addr;
 
     switch (ip_pkt->ip_p) {
     case IPPROTO_TCP: {
+      if (header->caplen < sizeof(struct ether_header) + ip_pkt->ip_hl * 4 +
+                               sizeof(struct tcphdr))
+        return;
       struct tcphdr *tcp = parse_tcp(packet, ip_pkt);
       key.protocol = IPPROTO_TCP;
       key.src_port = tcp->th_sport;
@@ -72,9 +85,17 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
       if (cap->verbose)
         printf("[TCP]   SRC: %d -> DST: %d\n", ntohs(tcp->th_sport),
                ntohs(tcp->th_dport));
+      value = flowtable_put(table, key);
+      if (!value)
+        return;
+
       break;
     }
     case IPPROTO_UDP: {
+      if (header->caplen < sizeof(struct ether_header) + ip_pkt->ip_hl * 4 +
+                               sizeof(struct udphdr))
+        return;
+
       struct udphdr *udp = parse_udp(packet, ip_pkt);
       key.protocol = IPPROTO_UDP;
       key.src_port = udp->uh_sport;
@@ -82,21 +103,22 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
       if (cap->verbose)
         printf("[UDP]   SRC: %d -> DST: %d\n", ntohs(udp->uh_sport),
                ntohs(udp->uh_dport));
+      value = flowtable_put(table, key);
+      if (!value)
+        return;
+
       break;
     }
     default:
-      break;
+      return;
     }
 
     /* Upsert flow and stamp timestamps for eviction tracking */
-    FlowValue *value = flowtable_put(table, key);
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    if (!value->first_seen.tv_sec)
-      value->first_seen.tv_sec = now.tv_sec;
-
-    value->last_seen.tv_sec = now.tv_sec;
     value->sent_packets++;
+    value->last_seen = now;
+    value->total_bytes += header->len;
 
     if (cap->verbose)
       printf("[FLOW]  count: %lu\n", table->count);

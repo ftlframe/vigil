@@ -51,3 +51,8 @@ FlowValue *flowtable_put(FlowTable *table, FlowKey key);
 FlowValue *flowtable_get(FlowTable *table, FlowKey key);
 uint32_t flowtable_hash(FlowKey key);
 void flowtable_evict(FlowTable *table);
+static inline int flowkey_eq(const FlowKey *a, const FlowKey *b) {
+  return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip &&
+         a->protocol == b->protocol && a->src_port == b->src_port &&
+         a->dst_port == b->dst_port;
+}

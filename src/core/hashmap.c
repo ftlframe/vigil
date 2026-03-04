@@ -15,6 +15,9 @@
 
 /* Allocate table + backing array from the arena, zero-initialise slots */
 FlowTable *flowtable_init(Arena *arena, size_t capacity) {
+  if (!capacity || capacity & (capacity - 1))
+    return NULL;
+
   FlowTable *table = arena_alloc(arena, sizeof(FlowTable));
   if (!table)
     return NULL;
@@ -35,10 +38,16 @@ FlowTable *flowtable_init(Arena *arena, size_t capacity) {
 /* FNV-1a over the raw bytes of a FlowKey */
 uint32_t flowtable_hash(FlowKey key) {
   uint32_t hash = FNV_OFFSET_BASIS;
-  for (int i = 0; i < sizeof(FlowKey); i++) {
-    hash ^= ((uint8_t *)&key)[i];
-    hash *= FNV_PRIME;
-  }
+  hash ^= key.src_ip;
+  hash *= FNV_PRIME;
+  hash ^= key.dst_ip;
+  hash *= FNV_PRIME;
+  hash ^= key.protocol;
+  hash *= FNV_PRIME;
+  hash ^= key.src_port;
+  hash *= FNV_PRIME;
+  hash ^= key.dst_port;
+  hash *= FNV_PRIME;
 
   return hash;
 }
@@ -74,6 +83,9 @@ FlowValue *flowtable_put(FlowTable *table, FlowKey key) {
   if (table->count * 4 > table->capacity * 3)
     flowtable_evict(table);
 
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+
   uint32_t hash = flowtable_hash(key);
   uint32_t index = hash & (table->capacity - 1);
 
@@ -91,9 +103,11 @@ FlowValue *flowtable_put(FlowTable *table, FlowKey key) {
       entry->state = SLOT_OCCUPIED;
       table->count++;
       entry->key = key;
+      memset(&entry->value, 0, sizeof(FlowValue));
+      entry->value.first_seen = now;
       return &entry->value;
     case SLOT_OCCUPIED:
-      if (!memcmp(&entry->key, &key, sizeof(FlowKey)))
+      if (flowkey_eq(&key, &entry->key))
         return &entry->value;
       continue;
     case SLOT_TOMBSTONE:
@@ -125,7 +139,7 @@ FlowValue *flowtable_get(FlowTable *table, FlowKey key) {
     case SLOT_TOMBSTONE:
       continue;
     case SLOT_OCCUPIED:
-      if (!memcmp(&entry->key, &key, sizeof(FlowKey)))
+      if (flowkey_eq(&entry->key, &key))
         return &entry->value;
       continue;
     }
