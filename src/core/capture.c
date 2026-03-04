@@ -1,15 +1,15 @@
 #include "vigil/capture.h"
 
 #include <arpa/inet.h>
+#include <inttypes.h>
 #include <net/ethernet.h>
+#include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <pcap.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <inttypes.h>
 #include <time.h>
 
 #include "vigil/hashmap.h"
@@ -52,29 +52,33 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
 
   if (header->caplen < sizeof(struct ether_header))
     return;
+
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+
   CaptureHandle *cap = (CaptureHandle *)user;
   FlowTable *table = cap->flow_table;
 
-  struct ether_header *eth_pkt = parse_ethernet(packet);
+  const struct ether_header *eth_pkt = parse_ethernet(packet);
 
   switch (ntohs(eth_pkt->ether_type)) {
   case PKT_IPv4: {
     if (header->caplen < sizeof(struct ether_header) + sizeof(struct iphdr))
       return;
 
-    struct ip *ip_pkt = parse_ip(packet);
+    const struct ip *ip_pkt = parse_ip(packet);
 
-    /* FIXME: validate ip_hl >= 5 (minimum valid IP header).
-     *        ip_hl is attacker-controlled (4-bit, max 15). Values < 5
-     *        would point TCP/UDP parsing into the IP header itself,
-     *        reading garbage into the flow key. */
+    /* If attacker can craft a packet with header length 0 or 1
+     * We protect against this with the minimum hl check */
+    if (ip_pkt->ip_hl < 5)
+      return;
 
     if (cap->verbose) {
-      /* TODO: replace inet_ntoa with inet_ntop — inet_ntoa uses a
-       *       static buffer and is not thread-safe (data race when
-       *       capture thread + analysis thread are added). */
-      printf("[IPv4]  SRC: %s", inet_ntoa(ip_pkt->ip_src));
-      printf(" -> DST: %s\n", inet_ntoa(ip_pkt->ip_dst));
+      char src_str[INET_ADDRSTRLEN];
+      char dst_str[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, &ip_pkt->ip_src, src_str, sizeof(src_str));
+      inet_ntop(AF_INET, &ip_pkt->ip_dst, dst_str, sizeof(dst_str));
+      printf("[IPv4]  SRC: %s -> DST: %s\n", src_str, dst_str);
     }
 
     FlowKey key;
@@ -87,14 +91,14 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
       if (header->caplen < sizeof(struct ether_header) + ip_pkt->ip_hl * 4 +
                                sizeof(struct tcphdr))
         return;
-      struct tcphdr *tcp = parse_tcp(packet, ip_pkt);
+      const struct tcphdr *tcp = parse_tcp(packet, ip_pkt);
       key.protocol = IPPROTO_TCP;
       key.src_port = tcp->th_sport;
       key.dst_port = tcp->th_dport;
       if (cap->verbose)
-        printf("[TCP]   SRC: %d -> DST: %d\n", ntohs(tcp->th_sport),
+        printf("[TCP]   SRC: %u -> DST: %u\n", ntohs(tcp->th_sport),
                ntohs(tcp->th_dport));
-      value = flowtable_put(table, key);
+      value = flowtable_put(table, key, now);
       if (!value)
         return;
 
@@ -105,14 +109,14 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
                                sizeof(struct udphdr))
         return;
 
-      struct udphdr *udp = parse_udp(packet, ip_pkt);
+      const struct udphdr *udp = parse_udp(packet, ip_pkt);
       key.protocol = IPPROTO_UDP;
       key.src_port = udp->uh_sport;
       key.dst_port = udp->uh_dport;
       if (cap->verbose)
-        printf("[UDP]   SRC: %d -> DST: %d\n", ntohs(udp->uh_sport),
+        printf("[UDP]   SRC: %u -> DST: %u\n", ntohs(udp->uh_sport),
                ntohs(udp->uh_dport));
-      value = flowtable_put(table, key);
+      value = flowtable_put(table, key, now);
       if (!value)
         return;
 
@@ -122,11 +126,8 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
       return;
     }
 
-    /* Upsert flow and stamp timestamps for eviction tracking */
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
+    /* Update flow counters */
     value->sent_packets++;
-    value->last_seen = now;
     value->total_bytes += header->len;
 
     if (cap->verbose)
@@ -163,6 +164,7 @@ CaptureHandle *capture_open(CaptureConfig *config) {
 
   CaptureHandle *handle = arena_alloc(arena, sizeof(CaptureHandle));
   if (!handle) {
+    pcap_close(pcap_handle);
     arena_free(arena);
     return NULL;
   }
@@ -185,7 +187,8 @@ int capture_start(CaptureHandle *handle) {
 /* Release pcap handle and free the arena (all allocations with it) */
 void capture_close(CaptureHandle *handle) {
   pcap_close(handle->pcap);
-  arena_free(handle->arena);
+  Arena *arena = handle->arena;
+  arena_free(arena);
 }
 
 /* ── Device enumeration ───────────────────────────────────────────── */
