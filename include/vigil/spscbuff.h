@@ -48,12 +48,12 @@ typedef struct RingBuf {
   size_t capacity;    /* slot count including slack (user capacity + 1) */
   PacketEvent *slots; /* contiguous array, allocated after struct */
 
-  VIGIL_ALIGNAS(64)
-  VIGIL_ATOMIC(
-      size_t) write; /* next slot producer will write (producer-owned) */
+  VIGIL_ALIGNAS(CACHE_LINE_SIZE)
+  VIGIL_ATOMIC(size_t)
+  write;             /* next slot producer will write (producer-owned) */
   size_t read_cache; /* producer's stale copy of read index */
 
-  VIGIL_ALIGNAS(64)
+  VIGIL_ALIGNAS(CACHE_LINE_SIZE)
   VIGIL_ATOMIC(size_t) read; /* next slot consumer will read (consumer-owned) */
   size_t write_cache;        /* consumer's stale copy of write index */
 } RingBuf;

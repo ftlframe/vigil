@@ -6,8 +6,10 @@
 /* Single contiguous allocation: [RingBuf struct | slots array].
  * Stores capacity+1 to account for the slack element. */
 RingBuf *ringbuf_init(size_t capacity) {
-  RingBuf *rb = aligned_alloc(
-      CACHE_LINE_SIZE, sizeof(RingBuf) + sizeof(PacketEvent) * (capacity + 1));
+  size_t raw_size = sizeof(RingBuf) + sizeof(PacketEvent) * (capacity + 1);
+  size_t aligned_size =
+      (raw_size + (CACHE_LINE_SIZE - 1)) & ~(CACHE_LINE_SIZE - 1);
+  RingBuf *rb = aligned_alloc(CACHE_LINE_SIZE, aligned_size);
   if (!rb)
     return NULL;
   rb->capacity = capacity + 1;
