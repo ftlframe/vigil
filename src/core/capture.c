@@ -3,23 +3,27 @@
 #include <arpa/inet.h>
 #include <inttypes.h>
 #include <net/ethernet.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <pcap.h>
+#include <pcap/pcap.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 
 #include "vigil/hashmap.h"
 #include "vigil/parse.h"
+#include "vigil/spscbuff.h"
 
 /* CaptureHandle — opaque to consumers, defined only here */
 struct CaptureHandle {
   Arena *arena;
   FlowTable *flow_table;
   pcap_t *pcap;
+  RingBuf *buffer;
   int verbose;
 };
 
@@ -130,6 +134,11 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
     value->sent_packets++;
     value->total_bytes += header->len;
 
+    if (cap->buffer) {
+      PacketEvent ev = {
+          .key = key, .packet_len = header->len, .timestamp = now};
+      ringbuf_push(cap->buffer, ev);
+    }
     if (cap->verbose)
       printf("[FLOW]  count: %" PRIu64 "\n", table->count);
     break;
@@ -172,6 +181,7 @@ CaptureHandle *capture_open(CaptureConfig *config) {
   handle->flow_table = flow_table;
   handle->pcap = pcap_handle;
   handle->verbose = config->verbose;
+  handle->buffer = NULL;
 
   return handle;
 }
@@ -203,4 +213,8 @@ int capture_default_device(char *name, size_t len, char *errbuf) {
   snprintf(name, len, "%s", devs->name);
   pcap_freealldevs(devs);
   return 0;
+}
+
+void capture_attach_ringbuf(CaptureHandle *handle, RingBuf *rb) {
+  handle->buffer = rb;
 }

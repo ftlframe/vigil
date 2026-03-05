@@ -15,6 +15,7 @@ typedef struct {
 
 /* Opaque handle — struct defined in capture.c */
 typedef struct CaptureHandle CaptureHandle;
+typedef struct RingBuf RingBuf;
 
 /* TODO: FlowKey/FlowValue forward declarations here create coupling —
  *       anyone using capture_foreach_flow must also include hashmap.h.
@@ -32,3 +33,4 @@ CaptureHandle *capture_open(CaptureConfig *config);
 int capture_start(CaptureHandle *handle);
 void capture_stop(CaptureHandle *handle);
 void capture_close(CaptureHandle *handle);
+void capture_attach_ringbuf(CaptureHandle *handle, RingBuf *rb);
