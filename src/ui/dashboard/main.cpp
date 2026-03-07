@@ -16,7 +16,6 @@
 
 extern "C" {
 #include "vigil/capture.h"
-#include "vigil/hashmap.h"
 #include "vigil/spscbuff.h"
 }
 
