@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <arpa/inet.h>
 #include <csignal>
 #include <cstdio>
@@ -8,6 +9,7 @@
 #include <vector>
 
 #include <ftxui/component/component.hpp>
+#include <ftxui/component/event.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
@@ -149,7 +151,6 @@ int main(int argc, char *argv[]) {
   FlowMap flows;
   uint64_t total_packets = 0;
   uint64_t total_bytes = 0;
-  uint64_t dropped_events = 0;
 
   auto screen = ftxui::ScreenInteractive::Fullscreen();
 
@@ -158,12 +159,17 @@ int main(int argc, char *argv[]) {
   auto const cream      = ftxui::Color::RGB(216, 202, 184);  /* #d8cab8 — text */
   auto const dark_bg    = ftxui::Color::RGB(20, 18, 22);     /* #141216 — background */
   auto const dark_purp  = ftxui::Color::RGB(43, 33, 53);     /* #2b2135 — secondary */
-  auto const urgent_red = ftxui::Color::RGB(252, 70, 73);    /* #fc4649 — urgent */
   auto const muted      = ftxui::Color::RGB(120, 100, 140);  /* muted lavender for dim text */
   auto const tcp_color  = ftxui::Color::RGB(160, 220, 180);  /* soft green for TCP */
   auto const udp_color  = ftxui::Color::RGB(140, 180, 240);  /* soft blue for UDP */
 
-  auto renderer = ftxui::Renderer([&] {
+  /* Filter input */
+  std::string filter_text;
+  auto filter_input = ftxui::Input(&filter_text, "IP or port...");
+  int scroll_offset = 0;
+  int total_data_rows = 0;
+
+  auto renderer = ftxui::Renderer(filter_input, [&] {
     using namespace ftxui;
 
     /* Drain ring buffer */
@@ -188,23 +194,47 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    /* Build flow table rows */
+    /* Evict flows idle longer than 60s */
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    for (auto it = flows.begin(); it != flows.end(); ) {
+      if (now.tv_sec - it->second.last_seen.tv_sec > 60)
+        it = flows.erase(it);
+      else
+        ++it;
+    }
+
+    /* Build flow table rows — apply filter */
     std::vector<std::vector<std::string>> rows;
     rows.push_back({"Proto", "Source", "Destination", "Packets", "Bytes"});
 
     for (auto &[key, stats] : flows) {
+      auto src = ip_to_str(key.src_ip) + ":" + std::to_string(ntohs(key.src_port));
+      auto dst = ip_to_str(key.dst_ip) + ":" + std::to_string(ntohs(key.dst_port));
+      auto proto = proto_to_str(key.protocol);
+
+      if (!filter_text.empty()) {
+        if (src.find(filter_text) == std::string::npos &&
+            dst.find(filter_text) == std::string::npos &&
+            proto.find(filter_text) == std::string::npos)
+          continue;
+      }
+
       rows.push_back({
-          proto_to_str(key.protocol),
-          ip_to_str(key.src_ip) + ":" + std::to_string(ntohs(key.src_port)),
-          ip_to_str(key.dst_ip) + ":" + std::to_string(ntohs(key.dst_port)),
+          proto,
+          src,
+          dst,
           std::to_string(stats.packets),
           format_bytes(stats.bytes),
       });
     }
 
+    total_data_rows = (int)rows.size() - 1;
+    scroll_offset = std::max(0, std::min(scroll_offset, std::max(0, total_data_rows - 1)));
+
     auto table = Table(rows);
     table.SelectAll().Border(LIGHT);
-    table.SelectAll().Decorate(color(cream));
+    table.SelectAll().DecorateCells(color(cream));
 
     /* Header row — lavender accent */
     table.SelectRow(0).Decorate(bold);
@@ -230,45 +260,94 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    size_t visible_flows = rows.size() - 1;
+
     /* Title bar */
     auto title = hbox({
         text(" VIGIL ") | bold | color(dark_bg) | bgcolor(lavender),
         text("  Network Monitor") | bold | color(lavender),
-    });
-
-    /* Status bar */
-    auto status = hbox({
-        text(" " + std::string(interface_name) + " ") | bold | bgcolor(dark_purp) | color(cream),
-        text("  "),
-        text("Flows ") | color(muted),
-        text(std::to_string(flows.size())) | bold | color(cream),
-        text("    Packets ") | color(muted),
-        text(std::to_string(total_packets)) | bold | color(cream),
-        text("    Traffic ") | color(muted),
-        text(format_bytes(total_bytes)) | bold | color(lavender),
         filler(),
-        text(" Ctrl+C to quit ") | color(muted),
+        text(" Filter: ") | color(muted),
+        filter_input->Render() | size(WIDTH, EQUAL, 24) | color(cream),
+        text(" "),
     });
 
-    /* Empty state */
-    Element content;
-    if (flows.empty()) {
-      content = vbox({
+    /* Table content */
+    Element table_content;
+    if (rows.size() <= 1) {
+      auto msg = flows.empty() ? "Waiting for packets..."
+                                : "No flows match filter";
+      table_content = vbox({
           filler(),
-          text("Waiting for packets...") | center | color(muted),
+          text(msg) | center | color(muted),
           filler(),
       }) | flex;
     } else {
-      content = table.Render() | flex | vscroll_indicator | frame;
+      float scroll_y = total_data_rows > 1
+                            ? (float)scroll_offset / (float)(total_data_rows - 1)
+                            : 0.0f;
+      table_content = table.Render() | focusPositionRelative(0.0f, scroll_y)
+                      | vscroll_indicator | yframe | flex;
     }
+
+    /* Right sidebar — stats panel */
+    auto sidebar = vbox({
+        text(" Stats") | bold | color(lavender),
+        separator() | color(dark_purp),
+        text(""),
+        hbox({text(" Interface ") | color(muted)}),
+        hbox({text("  " + std::string(interface_name)) | bold | color(cream)}),
+        text(""),
+        hbox({text(" Flows ") | color(muted)}),
+        hbox({text("  " + std::to_string(visible_flows) +
+                   (filter_text.empty() ? "" : "/" + std::to_string(flows.size())))
+                  | bold | color(cream)}),
+        text(""),
+        hbox({text(" Packets ") | color(muted)}),
+        hbox({text("  " + std::to_string(total_packets)) | bold | color(cream)}),
+        text(""),
+        hbox({text(" Traffic ") | color(muted)}),
+        hbox({text("  " + format_bytes(total_bytes)) | bold | color(lavender)}),
+        filler(),
+        text(" Ctrl+C to quit") | color(muted),
+        text(""),
+    }) | size(WIDTH, EQUAL, 20) | borderStyled(ROUNDED, dark_purp);
+
+    /* Main content — table + sidebar */
+    auto content = hbox({
+        table_content,
+        sidebar,
+    });
 
     return vbox({
         title,
         separator() | color(dark_purp),
-        status,
-        separator() | color(dark_purp),
-        content,
+        content | flex,
     }) | border | borderStyled(ROUNDED, lavender);
+  });
+
+  /* Scroll events — mouse wheel + PageUp/PageDown always scroll the table,
+   * all other keys go to the filter input */
+  auto component = ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
+    if (event.is_mouse()) {
+      if (event.mouse().button == ftxui::Mouse::WheelUp) {
+        scroll_offset = std::max(0, scroll_offset - 3);
+        return true;
+      }
+      if (event.mouse().button == ftxui::Mouse::WheelDown) {
+        scroll_offset = std::min(std::max(0, total_data_rows - 1), scroll_offset + 3);
+        return true;
+      }
+    }
+    if (event == ftxui::Event::PageUp) {
+      scroll_offset = std::max(0, scroll_offset - 20);
+      return true;
+    }
+    if (event == ftxui::Event::PageDown) {
+      scroll_offset = std::min(std::max(0, total_data_rows - 1), scroll_offset + 20);
+      return true;
+    }
+    return false;
   });
 
   /* Refresh loop — use a separate thread to post custom events at ~2Hz */
@@ -287,7 +366,7 @@ int main(int argc, char *argv[]) {
       },
       &screen);
 
-  screen.Loop(renderer);
+  screen.Loop(component);
 
   /* ── Shutdown ────────────────────────────────────────────────────── */
 
