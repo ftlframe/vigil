@@ -168,7 +168,8 @@ CaptureHandle *capture_open(CaptureConfig *config) {
     arena_free(arena);
     return NULL;
   }
-
+  /* NOTE: handle is allocated from the arena it stores a pointer to.
+   * capture_close must save arena to a local before freeing. */
   CaptureHandle *handle = arena_alloc(arena, sizeof(CaptureHandle));
   if (!handle) {
     pcap_close(pcap_handle);

@@ -52,10 +52,14 @@ struct FlowStats {
 /* FlowKey comparator for std::map */
 struct FlowKeyCmp {
   bool operator()(const FlowKey &a, const FlowKey &b) const {
-    if (a.src_ip != b.src_ip) return a.src_ip < b.src_ip;
-    if (a.dst_ip != b.dst_ip) return a.dst_ip < b.dst_ip;
-    if (a.protocol != b.protocol) return a.protocol < b.protocol;
-    if (a.src_port != b.src_port) return a.src_port < b.src_port;
+    if (a.src_ip != b.src_ip)
+      return a.src_ip < b.src_ip;
+    if (a.dst_ip != b.dst_ip)
+      return a.dst_ip < b.dst_ip;
+    if (a.protocol != b.protocol)
+      return a.protocol < b.protocol;
+    if (a.src_port != b.src_port)
+      return a.src_port < b.src_port;
     return a.dst_port < b.dst_port;
   }
 };
@@ -72,15 +76,20 @@ static std::string ip_to_str(uint32_t ip_net) {
 
 static std::string proto_to_str(uint8_t proto) {
   switch (proto) {
-  case IPPROTO_TCP: return "TCP";
-  case IPPROTO_UDP: return "UDP";
-  default: return "???";
+  case IPPROTO_TCP:
+    return "TCP";
+  case IPPROTO_UDP:
+    return "UDP";
+  default:
+    return "???";
   }
 }
 
 static std::string format_bytes(uint64_t bytes) {
-  if (bytes < 1024) return std::to_string(bytes) + " B";
-  if (bytes < 1024 * 1024) return std::to_string(bytes / 1024) + " KB";
+  if (bytes < 1024)
+    return std::to_string(bytes) + " B";
+  if (bytes < 1024 * 1024)
+    return std::to_string(bytes / 1024) + " KB";
   return std::to_string(bytes / (1024 * 1024)) + " MB";
 }
 
@@ -89,13 +98,16 @@ static std::string format_bytes(uint64_t bytes) {
 static constexpr size_t RINGBUF_CAPACITY = 4096;
 
 int main(int argc, char *argv[]) {
-  /* Parse CLI args */
+  /* Parse CLI args — only accepted argument is the interface name */
   char *interface_name = nullptr;
   char devbuf[256];
 
-  for (int i = 1; i < argc; i++) {
-    interface_name = argv[i];
+  if (argc > 2) {
+    fprintf(stderr, "Usage: %s [interface]\n", argv[0]);
+    return 1;
   }
+  if (argc == 2)
+    interface_name = argv[1];
 
   if (!interface_name) {
     char errbuf[VIGIL_ERRBUF_SIZE];
@@ -155,19 +167,24 @@ int main(int argc, char *argv[]) {
   auto screen = ftxui::ScreenInteractive::Fullscreen();
 
   /* Theme colors matching sway config */
-  auto const lavender   = ftxui::Color::RGB(191, 158, 240);  /* #bf9ef0 — accent */
-  auto const cream      = ftxui::Color::RGB(216, 202, 184);  /* #d8cab8 — text */
-  auto const dark_bg    = ftxui::Color::RGB(20, 18, 22);     /* #141216 — background */
-  auto const dark_purp  = ftxui::Color::RGB(43, 33, 53);     /* #2b2135 — secondary */
-  auto const muted      = ftxui::Color::RGB(120, 100, 140);  /* muted lavender for dim text */
-  auto const tcp_color  = ftxui::Color::RGB(160, 220, 180);  /* soft green for TCP */
-  auto const udp_color  = ftxui::Color::RGB(140, 180, 240);  /* soft blue for UDP */
+  auto const lavender = ftxui::Color::RGB(191, 158, 240); /* #bf9ef0 — accent */
+  auto const cream = ftxui::Color::RGB(216, 202, 184);    /* #d8cab8 — text */
+  auto const dark_bg = ftxui::Color::RGB(20, 18, 22); /* #141216 — background */
+  auto const dark_purp =
+      ftxui::Color::RGB(43, 33, 53); /* #2b2135 — secondary */
+  auto const muted =
+      ftxui::Color::RGB(120, 100, 140); /* muted lavender for dim text */
+  auto const tcp_color =
+      ftxui::Color::RGB(160, 220, 180); /* soft green for TCP */
+  auto const udp_color =
+      ftxui::Color::RGB(140, 180, 240); /* soft blue for UDP */
 
   /* Filter input */
   std::string filter_text;
   auto filter_input = ftxui::Input(&filter_text, "IP or port...");
   int scroll_offset = 0;
   int total_data_rows = 0;
+  time_t last_eviction = 0;
 
   auto renderer = ftxui::Renderer(filter_input, [&] {
     using namespace ftxui;
@@ -197,11 +214,14 @@ int main(int argc, char *argv[]) {
     /* Evict flows idle longer than 60s */
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    for (auto it = flows.begin(); it != flows.end(); ) {
-      if (now.tv_sec - it->second.last_seen.tv_sec > 60)
-        it = flows.erase(it);
-      else
-        ++it;
+    if (now.tv_sec - last_eviction > 10) {
+      last_eviction = now.tv_sec;
+      for (auto it = flows.begin(); it != flows.end();) {
+        if (now.tv_sec - it->second.last_seen.tv_sec > 60)
+          it = flows.erase(it);
+        else
+          ++it;
+      }
     }
 
     /* Build flow table rows — apply filter */
@@ -209,8 +229,10 @@ int main(int argc, char *argv[]) {
     rows.push_back({"Proto", "Source", "Destination", "Packets", "Bytes"});
 
     for (auto &[key, stats] : flows) {
-      auto src = ip_to_str(key.src_ip) + ":" + std::to_string(ntohs(key.src_port));
-      auto dst = ip_to_str(key.dst_ip) + ":" + std::to_string(ntohs(key.dst_port));
+      auto src =
+          ip_to_str(key.src_ip) + ":" + std::to_string(ntohs(key.src_port));
+      auto dst =
+          ip_to_str(key.dst_ip) + ":" + std::to_string(ntohs(key.dst_port));
       auto proto = proto_to_str(key.protocol);
 
       if (!filter_text.empty()) {
@@ -230,7 +252,8 @@ int main(int argc, char *argv[]) {
     }
 
     total_data_rows = (int)rows.size() - 1;
-    scroll_offset = std::max(0, std::min(scroll_offset, std::max(0, total_data_rows - 1)));
+    scroll_offset =
+        std::max(0, std::min(scroll_offset, std::max(0, total_data_rows - 1)));
 
     auto table = Table(rows);
     table.SelectAll().Border(LIGHT);
@@ -275,43 +298,50 @@ int main(int argc, char *argv[]) {
     /* Table content */
     Element table_content;
     if (rows.size() <= 1) {
-      auto msg = flows.empty() ? "Waiting for packets..."
-                                : "No flows match filter";
+      auto msg =
+          flows.empty() ? "Waiting for packets..." : "No flows match filter";
       table_content = vbox({
-          filler(),
-          text(msg) | center | color(muted),
-          filler(),
-      }) | flex;
+                          filler(),
+                          text(msg) | center | color(muted),
+                          filler(),
+                      }) |
+                      flex;
     } else {
       float scroll_y = total_data_rows > 1
-                            ? (float)scroll_offset / (float)(total_data_rows - 1)
-                            : 0.0f;
-      table_content = table.Render() | focusPositionRelative(0.0f, scroll_y)
-                      | vscroll_indicator | yframe | flex;
+                           ? (float)scroll_offset / (float)(total_data_rows - 1)
+                           : 0.0f;
+      table_content = table.Render() | focusPositionRelative(0.0f, scroll_y) |
+                      vscroll_indicator | yframe | flex;
     }
 
     /* Right sidebar — stats panel */
     auto sidebar = vbox({
-        text(" Stats") | bold | color(lavender),
-        separator() | color(dark_purp),
-        text(""),
-        hbox({text(" Interface ") | color(muted)}),
-        hbox({text("  " + std::string(interface_name)) | bold | color(cream)}),
-        text(""),
-        hbox({text(" Flows ") | color(muted)}),
-        hbox({text("  " + std::to_string(visible_flows) +
-                   (filter_text.empty() ? "" : "/" + std::to_string(flows.size())))
-                  | bold | color(cream)}),
-        text(""),
-        hbox({text(" Packets ") | color(muted)}),
-        hbox({text("  " + std::to_string(total_packets)) | bold | color(cream)}),
-        text(""),
-        hbox({text(" Traffic ") | color(muted)}),
-        hbox({text("  " + format_bytes(total_bytes)) | bold | color(lavender)}),
-        filler(),
-        text(" Ctrl+C to quit") | color(muted),
-        text(""),
-    }) | size(WIDTH, EQUAL, 20) | borderStyled(ROUNDED, dark_purp);
+                       text(" Stats") | bold | color(lavender),
+                       separator() | color(dark_purp),
+                       text(""),
+                       hbox({text(" Interface ") | color(muted)}),
+                       hbox({text("  " + std::string(interface_name)) | bold |
+                             color(cream)}),
+                       text(""),
+                       hbox({text(" Flows ") | color(muted)}),
+                       hbox({text("  " + std::to_string(visible_flows) +
+                                  (filter_text.empty()
+                                       ? ""
+                                       : "/" + std::to_string(flows.size()))) |
+                             bold | color(cream)}),
+                       text(""),
+                       hbox({text(" Packets ") | color(muted)}),
+                       hbox({text("  " + std::to_string(total_packets)) | bold |
+                             color(cream)}),
+                       text(""),
+                       hbox({text(" Traffic ") | color(muted)}),
+                       hbox({text("  " + format_bytes(total_bytes)) | bold |
+                             color(lavender)}),
+                       filler(),
+                       text(" Ctrl+C to quit") | color(muted),
+                       text(""),
+                   }) |
+                   size(WIDTH, EQUAL, 20) | borderStyled(ROUNDED, dark_purp);
 
     /* Main content — table + sidebar */
     auto content = hbox({
@@ -320,10 +350,11 @@ int main(int argc, char *argv[]) {
     });
 
     return vbox({
-        title,
-        separator() | color(dark_purp),
-        content | flex,
-    }) | border | borderStyled(ROUNDED, lavender);
+               title,
+               separator() | color(dark_purp),
+               content | flex,
+           }) |
+           border | borderStyled(ROUNDED, lavender);
   });
 
   /* Scroll events — mouse wheel + PageUp/PageDown always scroll the table,
@@ -335,7 +366,8 @@ int main(int argc, char *argv[]) {
         return true;
       }
       if (event.mouse().button == ftxui::Mouse::WheelDown) {
-        scroll_offset = std::min(std::max(0, total_data_rows - 1), scroll_offset + 3);
+        scroll_offset =
+            std::min(std::max(0, total_data_rows - 1), scroll_offset + 3);
         return true;
       }
     }
@@ -344,7 +376,8 @@ int main(int argc, char *argv[]) {
       return true;
     }
     if (event == ftxui::Event::PageDown) {
-      scroll_offset = std::min(std::max(0, total_data_rows - 1), scroll_offset + 20);
+      scroll_offset =
+          std::min(std::max(0, total_data_rows - 1), scroll_offset + 20);
       return true;
     }
     return false;
@@ -352,26 +385,33 @@ int main(int argc, char *argv[]) {
 
   /* Refresh loop — use a separate thread to post custom events at ~2Hz */
   pthread_t refresh_thread;
-  pthread_create(
-      &refresh_thread, nullptr,
-      [](void *arg) -> void * {
-        auto *scr = static_cast<ftxui::ScreenInteractive *>(arg);
-        while (g_running) {
-          struct timespec ts = {0, 500000000}; /* 500ms */
-          nanosleep(&ts, nullptr);
-          scr->Post(ftxui::Event::Custom);
-        }
-        scr->ExitLoopClosure()();
-        return nullptr;
-      },
-      &screen);
+  if (pthread_create(
+          &refresh_thread, nullptr,
+          [](void *arg) -> void * {
+            auto *scr = static_cast<ftxui::ScreenInteractive *>(arg);
+            while (g_running) {
+              struct timespec ts = {0, 500000000}; /* 500ms */
+              nanosleep(&ts, nullptr);
+              scr->Post(ftxui::Event::Custom);
+            }
+            scr->ExitLoopClosure()();
+            return nullptr;
+          },
+          &screen) != 0) {
+    fprintf(stderr, "Failed to create refresh thread\n");
+    capture_stop(handle);
+    g_running = 0;
+    pthread_join(cap_thread, nullptr);
+    capture_close(handle);
+    ringbuf_free(rb);
+    return 1;
+  }
 
   screen.Loop(component);
 
   /* ── Shutdown ────────────────────────────────────────────────────── */
 
   g_running = 0;
-  capture_stop(handle);
   pthread_join(cap_thread, nullptr);
   pthread_join(refresh_thread, nullptr);
   capture_close(handle);

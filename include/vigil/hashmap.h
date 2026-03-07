@@ -3,6 +3,7 @@
 #include <time.h>
 
 #include "arena.h"
+#include "flowkey.h"
 
 /* Open-addressed hash map (linear probing) for tracking network flows.
  * All memory comes from the arena — no per-entry malloc. */
@@ -13,15 +14,6 @@ typedef enum {
   SLOT_OCCUPIED,
   SLOT_TOMBSTONE,
 } FlowKeyState;
-
-/* 5-tuple that uniquely identifies a connection */
-typedef struct FlowKey {
-  uint32_t src_ip;
-  uint32_t dst_ip;
-  uint8_t protocol;
-  uint16_t src_port;
-  uint16_t dst_port;
-} FlowKey;
 
 /* Per-flow statistics */
 typedef struct FlowValue {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vigil/hashmap.h"
+#include "vigil/flowkey.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
@@ -9,11 +9,15 @@
 #include <atomic>
 #define VIGIL_ATOMIC(T) std::atomic<T>
 #define VIGIL_ALIGNAS(N) alignas(N)
+#define VIGIL_STATIC_ASSERT(expr, msg) static_assert(expr, msg)
+#define VIGIL_ALIGNOF(T) alignof(T)
 #else
 #include <stdatomic.h>
 #include <stdbool.h>
 #define VIGIL_ATOMIC(T) _Atomic T
 #define VIGIL_ALIGNAS(N) _Alignas(N)
+#define VIGIL_STATIC_ASSERT(expr, msg) _Static_assert(expr, msg)
+#define VIGIL_ALIGNOF(T) _Alignof(T)
 #endif
 
 #if defined(__aarch64__) && defined(__APPLE__)

@@ -42,6 +42,7 @@ FetchContent_MakeAvailable(ftxui)
 # ── Dashboard target ─────────────────────────────────────────────────
 add_executable(vigil_dashboard src/ui/dashboard/main.cpp)
 target_link_libraries(vigil_dashboard vigil_core ftxui::screen ftxui::dom ftxui::component pthread)
+target_compile_options(vigil_dashboard PRIVATE -Wall -Wextra -Wpedantic)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_options(vigil_dashboard PRIVATE -fsanitize=address,undefined)
   target_link_options(vigil_dashboard PRIVATE -fsanitize=address,undefined)

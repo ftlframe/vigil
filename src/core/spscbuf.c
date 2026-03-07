@@ -13,6 +13,8 @@ RingBuf *ringbuf_init(size_t capacity) {
   if (!rb)
     return NULL;
   rb->capacity = capacity + 1;
+  VIGIL_STATIC_ASSERT(sizeof(RingBuf) % VIGIL_ALIGNOF(PacketEvent) == 0,
+                      "RingBuf size must be aligned for PacketEvent array");
   rb->slots = (PacketEvent *)((char *)rb + sizeof(RingBuf));
   memset(rb->slots, 0, sizeof(PacketEvent) * (capacity + 1));
   rb->read = 0;
