@@ -134,8 +134,30 @@ static void parse_packet(u_char *user, const struct pcap_pkthdr *header,
 
     if (cap->buffer) {
       PacketEvent ev = {
-          .key = key, .packet_len = header->len, .timestamp = now};
-      ringbuf_push(cap->buffer, ev);
+          .key = key,
+          .packet_len = header->len,
+          .timestamp = now,
+          .payload_len = 0,
+      };
+
+      /* Compute application payload offset past transport header */
+      size_t hdr_len = sizeof(struct ether_header) + ip_pkt->ip_hl * 4;
+      if (ip_pkt->ip_p == IPPROTO_TCP) {
+        const struct tcphdr *tcp = parse_tcp(packet, ip_pkt);
+        hdr_len += tcp->th_off * 4;
+      } else {
+        hdr_len += sizeof(struct udphdr);
+      }
+
+      if (header->caplen > hdr_len) {
+        uint16_t plen = header->caplen - hdr_len;
+        if (plen > ETH_MTU)
+          plen = ETH_MTU;
+        memcpy(ev.payload, packet + hdr_len, plen);
+        ev.payload_len = plen;
+      }
+
+      ringbuf_push(cap->buffer, &ev);
     }
     if (cap->verbose)
       printf("[FLOW]  count: %" PRIu64 "\n", table->count);

@@ -39,9 +39,21 @@ FetchContent_Declare(ftxui
 )
 FetchContent_MakeAvailable(ftxui)
 
+# ── Engine library (C++ protocol classifiers) ───────────────────────
+add_library(vigil_engine STATIC
+  src/engine/dns.cpp
+)
+target_include_directories(vigil_engine PUBLIC src)
+target_link_libraries(vigil_engine vigil_core)
+target_compile_options(vigil_engine PRIVATE -Wall -Wextra -Wpedantic)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_options(vigil_engine PRIVATE -fsanitize=address,undefined)
+  target_link_options(vigil_engine PRIVATE -fsanitize=address,undefined)
+endif()
+
 # ── Dashboard target ─────────────────────────────────────────────────
 add_executable(vigil_dashboard src/ui/dashboard/main.cpp)
-target_link_libraries(vigil_dashboard vigil_core ftxui::screen ftxui::dom ftxui::component pthread)
+target_link_libraries(vigil_dashboard vigil_core vigil_engine ftxui::screen ftxui::dom ftxui::component pthread)
 target_compile_options(vigil_dashboard PRIVATE -Wall -Wextra -Wpedantic)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_options(vigil_dashboard PRIVATE -fsanitize=address,undefined)

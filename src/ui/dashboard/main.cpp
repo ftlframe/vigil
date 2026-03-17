@@ -3,6 +3,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <pthread.h>
 #include <string>
@@ -13,6 +14,8 @@
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/table.hpp>
+
+#include "engine/dns.hpp"
 
 extern "C" {
 #include "vigil/capture.h"
@@ -163,6 +166,10 @@ int main(int argc, char *argv[]) {
   uint64_t total_packets = 0;
   uint64_t total_bytes = 0;
 
+  /* Recent DNS events — capped ring for display */
+  static constexpr size_t DNS_LOG_MAX = 64;
+  std::deque<DnsEvent> dns_log;
+
   auto screen = ftxui::ScreenInteractive::Fullscreen();
 
   /* Theme colors matching sway config */
@@ -207,6 +214,18 @@ int main(int argc, char *argv[]) {
         stats.first_seen = ev.timestamp;
         stats.last_seen = ev.timestamp;
         flows[ev.key] = stats;
+      }
+
+      /* Classify DNS packets (port 53 UDP) */
+      if (ev.key.protocol == IPPROTO_UDP &&
+          (ntohs(ev.key.src_port) == 53 || ntohs(ev.key.dst_port) == 53) &&
+          ev.payload_len > 0) {
+        auto dns = dns_parse(ev.payload, ev.payload_len);
+        if (dns) {
+          dns_log.push_back(std::move(*dns));
+          if (dns_log.size() > DNS_LOG_MAX)
+            dns_log.pop_front();
+        }
       }
     }
 
@@ -313,6 +332,21 @@ int main(int argc, char *argv[]) {
                       vscroll_indicator | yframe | flex;
     }
 
+    /* DNS log entries for sidebar */
+    Elements dns_entries;
+    for (auto it = dns_log.rbegin();
+         it != dns_log.rend() && dns_entries.size() < 8; ++it) {
+      std::string prefix = it->is_response ? "< " : "> ";
+      std::string line = prefix + it->qname;
+      if (it->is_response && !it->answers.empty())
+        line += " -> " + it->answers[0].data;
+      if (it->is_response && it->rcode == 3)
+        line = prefix + it->qname + " NXDOMAIN";
+      dns_entries.push_back(text(" " + line) | color(cream));
+    }
+    if (dns_entries.empty())
+      dns_entries.push_back(text(" No DNS yet") | color(muted));
+
     /* Right sidebar — stats panel */
     auto sidebar = vbox({
                        text(" Stats") | bold | color(lavender),
@@ -336,11 +370,16 @@ int main(int argc, char *argv[]) {
                        hbox({text(" Traffic ") | color(muted)}),
                        hbox({text("  " + format_bytes(total_bytes)) | bold |
                              color(lavender)}),
+                       text(""),
+                       separator() | color(dark_purp),
+                       text(" DNS Log") | bold | color(lavender),
+                       separator() | color(dark_purp),
+                       vbox(dns_entries),
                        filler(),
                        text(" Ctrl+C to quit") | color(muted),
                        text(""),
                    }) |
-                   size(WIDTH, EQUAL, 20) | borderStyled(ROUNDED, dark_purp);
+                   size(WIDTH, EQUAL, 36) | borderStyled(ROUNDED, dark_purp);
 
     /* Main content — table + sidebar */
     auto content = hbox({

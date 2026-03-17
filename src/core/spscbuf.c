@@ -1,5 +1,6 @@
 #include "vigil/spscbuff.h"
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,7 +35,7 @@ void ringbuf_free(RingBuf *ringbuf) { free(ringbuf); }
  *    If still full: drop the event (return false)
  * 4. Write slot, then publish new write index with release store
  *    (release guarantees slot data is visible before the index update) */
-bool ringbuf_push(RingBuf *rb, PacketEvent in) {
+bool ringbuf_push(RingBuf *rb, const PacketEvent *in) {
   size_t writeIdx = atomic_load_explicit(&rb->write, memory_order_relaxed);
   size_t nextWriteIdx = writeIdx + 1;
 
@@ -46,8 +47,8 @@ bool ringbuf_push(RingBuf *rb, PacketEvent in) {
     if (nextWriteIdx == rb->read_cache)
       return false;
   }
-
-  rb->slots[writeIdx] = in;
+  memcpy(&rb->slots[writeIdx], in,
+         offsetof(PacketEvent, payload) + in->payload_len);
   atomic_store_explicit(&rb->write, nextWriteIdx, memory_order_release);
   return true;
 }

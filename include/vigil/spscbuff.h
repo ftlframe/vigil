@@ -26,12 +26,16 @@
 #define CACHE_LINE_SIZE 64
 #endif
 
+#define ETH_MTU 1500
+
 /* Per-packet data passed from capture thread to UI thread.
  * The UI thread aggregates these into its own flow table. */
 typedef struct PacketEvent {
   FlowKey key;
   uint32_t packet_len;
   struct timespec timestamp;
+  uint16_t payload_len;
+  uint8_t payload[ETH_MTU];
 } PacketEvent;
 
 /* Lock-free single-producer single-consumer ring buffer (Vyukov/rigtorp
@@ -66,7 +70,7 @@ RingBuf *ringbuf_init(size_t capacity);
 void ringbuf_free(RingBuf *rb);
 
 /* Non-blocking push. Returns false if buffer is full (event dropped). */
-bool ringbuf_push(RingBuf *rb, PacketEvent in);
+bool ringbuf_push(RingBuf *rb, const PacketEvent *in);
 
 /* Non-blocking pop. Returns false if buffer is empty. Copies event into *out.
  */
