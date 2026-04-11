@@ -1,5 +1,13 @@
 # Vigil
 
+<!--toc:start-->
+- [Vigil](#vigil)
+  - [Architecture](#architecture)
+  - [Building](#building)
+  - [Roadmap](#roadmap)
+  - [Dependencies](#dependencies)
+<!--toc:end-->
+
 A lightweight network anomaly detector and intrusion detection system for embedded Linux gateways. Self-hosted alternative to commercial home network monitors (Circle, Firewalla).
 
 ## Architecture
@@ -26,9 +34,12 @@ Requires `libpcap-devel` and root/CAP_NET_RAW for raw capture.
 - [x] Ethernet / IPv4 / TCP / UDP header parsing
 - [x] Hash map + memory pool primitives (C)
 - [x] Connection tracking table (5-tuple keyed)
-- [ ] Stable C API surface (`include/vigil/`)
-- [ ] C++ consumer + ncurses dashboard
+- [x] Stable C API surface (`include/vigil/`)
+- [x] C++ consumer + FTXUI dashboard
 - [ ] Protocol state machines (MQTT, HTTP, DNS)
+  - [x] DNS
+  - [ ] HTTP
+  - [ ] MQTT
 - [ ] Anomaly rules engine
 - [ ] HTTP server + web dashboard
 - [ ] Device fingerprinting, plain-English alerts, circular logging
@@ -36,8 +47,8 @@ Requires `libpcap-devel` and root/CAP_NET_RAW for raw capture.
 ## Dependencies
 
 | Dependency | Purpose |
-|---|---|
+| --- | --- |
 | libpcap | Raw packet capture |
-| ncurses | Terminal dashboard |
+| FTXUI | Terminal dashboard |
 | cpp-httplib | Embedded HTTP server (header-only) |
 | pthread | Capture/analysis threading |
