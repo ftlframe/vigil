@@ -7,6 +7,9 @@
 #include <map>
 #include <pthread.h>
 #include <string>
+#include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <ftxui/component/component.hpp>
@@ -68,6 +71,14 @@ struct FlowKeyCmp {
 
 using FlowMap = std::map<FlowKey, FlowStats, FlowKeyCmp>;
 
+/* Constants for DNS Popup */
+const std::unordered_set<std::string> known_suffixes = {
+    "co.uk",  "org.uk", "ac.uk",  "gov.uk", "com.au", "org.au", "net.au",
+    "co.jp",  "or.jp",  "ne.jp",  "co.nz",  "co.kr",  "co.in",  "com.br",
+    "org.br", "com.mx", "com.cn", "com.tw", "co.za",  "co.il"};
+
+bool show_dns_popup = false;
+
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 
 static std::string ip_to_str(uint32_t ip_net) {
@@ -93,6 +104,31 @@ static std::string format_bytes(uint64_t bytes) {
   if (bytes < 1024 * 1024)
     return std::to_string(bytes / 1024) + " KB";
   return std::to_string(bytes / (1024 * 1024)) + " MB";
+}
+
+static std::string base_domain(const std::string &qname) {
+  // Find last dot → separates TLD
+  auto d1 = qname.rfind('.');
+  if (d1 == std::string::npos)
+    return qname; // single label
+
+  // Find second-to-last dot → gives 2-label tail
+  auto d2 = qname.rfind('.', d1 - 1);
+  if (d2 == std::string::npos)
+    return qname; // already 2 labels
+
+  // 2-label tail: everything after d2
+  std::string tail = qname.substr(d2 + 1);
+
+  if (known_suffixes.count(tail)) {
+    // Multi-part TLD — need 3 labels, find one more dot
+    auto d3 = qname.rfind('.', d2 - 1);
+    if (d3 == std::string::npos)
+      return qname;
+    return qname.substr(d3 + 1);
+  }
+
+  return tail; // 2-label base domain
 }
 
 /* ── Main ────────────────────────────────────────────────────────────── */
@@ -169,6 +205,12 @@ int main(int argc, char *argv[]) {
   /* Recent DNS events — capped ring for display */
   static constexpr size_t DNS_LOG_MAX = 64;
   std::deque<DnsEvent> dns_log;
+
+  struct DomainGroup {
+    unsigned query_count = 0;
+    unsigned response_count = 0;
+    std::vector<std::string> resolved_ips;
+  };
 
   auto screen = ftxui::ScreenInteractive::Fullscreen();
 
@@ -380,6 +422,46 @@ int main(int argc, char *argv[]) {
                        text(""),
                    }) |
                    size(WIDTH, EQUAL, 36) | borderStyled(ROUNDED, dark_purp);
+    // Build grouped data
+    std::map<std::string, DomainGroup> groups;
+    for (auto &ev : dns_log) {
+      auto &g = groups[base_domain(ev.qname)];
+      if (ev.is_response) {
+        g.response_count++;
+        for (auto &ans : ev.answers) {
+          if (std::find(g.resolved_ips.begin(), g.resolved_ips.end(),
+                        ans.data) == g.resolved_ips.end())
+            g.resolved_ips.push_back(ans.data);
+        }
+      } else {
+        g.query_count++;
+      }
+    }
+
+    Elements domain_rows;
+    for (auto &[domain, g] : groups) {
+      domain_rows.push_back(hbox({
+          text(" " + domain) | bold | color(cream) | flex,
+          text(std::to_string(g.query_count) + "q/" +
+               std::to_string(g.response_count) + "r ") |
+              color(muted),
+      }));
+      for (auto &ip : g.resolved_ips) {
+        domain_rows.push_back(text("   → " + ip) | color(muted));
+      }
+      domain_rows.push_back(separator() | color(dark_purp));
+    }
+    if (domain_rows.empty())
+      domain_rows.push_back(text(" No DNS data yet") | color(muted));
+
+    auto dns_popup =
+        vbox({
+            text(" DNS Domains (Esc to close)") | bold | color(lavender),
+            separator() | color(dark_purp),
+            vbox(domain_rows) | vscroll_indicator | yframe | flex,
+        }) |
+        size(WIDTH, EQUAL, 60) | size(HEIGHT, LESS_THAN, 30) |
+        borderStyled(ROUNDED, lavender) | clear_under | center;
 
     /* Main content — table + sidebar */
     auto content = hbox({
@@ -387,17 +469,30 @@ int main(int argc, char *argv[]) {
         sidebar,
     });
 
-    return vbox({
-               title,
-               separator() | color(dark_purp),
-               content | flex,
-           }) |
-           border | borderStyled(ROUNDED, lavender);
+    auto main_layout = vbox({
+                           title,
+                           separator() | color(dark_purp),
+                           content | flex,
+                       }) |
+                       border | borderStyled(ROUNDED, lavender);
+
+    return dbox({main_layout, show_dns_popup ? dns_popup : emptyElement()});
   });
 
   /* Scroll events — mouse wheel + PageUp/PageDown always scroll the table,
    * all other keys go to the filter input */
   auto component = ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
+    if (event == ftxui::Event::Character('d') && !show_dns_popup) {
+      show_dns_popup = true;
+      return true;
+    }
+    if (show_dns_popup) {
+      if (event == ftxui::Event::Escape) {
+        show_dns_popup = false;
+        return true;
+      }
+      return true;
+    }
     if (event.is_mouse()) {
       if (event.mouse().button == ftxui::Mouse::WheelUp) {
         scroll_offset = std::max(0, scroll_offset - 3);
@@ -428,8 +523,10 @@ int main(int argc, char *argv[]) {
           [](void *arg) -> void * {
             auto *scr = static_cast<ftxui::ScreenInteractive *>(arg);
             while (g_running) {
-              struct timespec ts = {0, 500000000}; /* 500ms */
+              struct timespec ts = {0, 100000000}; /* 500ms */
               nanosleep(&ts, nullptr);
+              if (!g_running)
+                break;
               scr->Post(ftxui::Event::Custom);
             }
             scr->ExitLoopClosure()();
@@ -450,6 +547,7 @@ int main(int argc, char *argv[]) {
   /* ── Shutdown ────────────────────────────────────────────────────── */
 
   g_running = 0;
+  capture_stop(handle);
   pthread_join(cap_thread, nullptr);
   pthread_join(refresh_thread, nullptr);
   capture_close(handle);
