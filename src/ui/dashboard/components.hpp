@@ -14,6 +14,7 @@
 #include "theme.hpp"
 
 #include "engine/dns.hpp"
+#include "engine/http.hpp"
 
 /* ── Title bar ───────────────────────────────────────────────────────── */
 
@@ -109,7 +110,8 @@ inline ftxui::Element render_sidebar(const char *interface_name,
                                      size_t visible_flows, size_t total_flows,
                                      uint64_t total_packets,
                                      uint64_t total_bytes, bool filtered,
-                                     const std::deque<DnsEvent> &dns_log) {
+                                     const std::deque<DnsEvent> &dns_log,
+                                     const std::deque<HttpEvent> &http_log) {
   using namespace ftxui;
   using namespace theme;
 
@@ -127,6 +129,28 @@ inline ftxui::Element render_sidebar(const char *interface_name,
   }
   if (dns_entries.empty())
     dns_entries.push_back(text(" No DNS yet") | color(muted));
+
+  /* HTTP log entries */
+  Elements http_entries;
+  for (auto it = http_log.rbegin();
+       it != http_log.rend() && http_entries.size() < 8; ++it) {
+    std::string line;
+    if (it->is_response) {
+      line = "< " + std::to_string(it->status) + " " + it->content_type;
+    } else {
+      std::string method;
+      switch (it->method_type) {
+      case HttpMethodTypes::GET:  method = "GET";  break;
+      case HttpMethodTypes::HEAD: method = "HEAD"; break;
+      case HttpMethodTypes::POST: method = "POST"; break;
+      default:                    method = "???";  break;
+      }
+      line = "> " + method + " " + it->host + it->URI;
+    }
+    http_entries.push_back(text(" " + line) | color(cream));
+  }
+  if (http_entries.empty())
+    http_entries.push_back(text(" No HTTP yet") | color(muted));
 
   return vbox({
              text(" Stats") | bold | color(lavender),
@@ -153,11 +177,62 @@ inline ftxui::Element render_sidebar(const char *interface_name,
              text(" DNS Log") | bold | color(lavender),
              separator() | color(dark_purp),
              vbox(dns_entries),
+             text(""),
+             separator() | color(dark_purp),
+             text(" HTTP Log") | bold | color(lavender),
+             separator() | color(dark_purp),
+             vbox(http_entries),
              filler(),
              text(" Ctrl+C to quit") | color(muted),
              text(""),
          }) |
          size(WIDTH, EQUAL, 36) | borderStyled(ROUNDED, dark_purp);
+}
+
+/* ── HTTP popup ──────────────────────────────────────────────────────── */
+
+inline ftxui::Element render_http_popup(const std::deque<HttpEvent> &http_log) {
+  using namespace ftxui;
+  using namespace theme;
+
+  Elements rows;
+  for (auto it = http_log.rbegin(); it != http_log.rend(); ++it) {
+    if (it->is_response) {
+      rows.push_back(hbox({
+          text(" < ") | color(muted),
+          text(std::to_string(it->status)) | bold |
+              color(it->status >= 400 ? ftxui::Color::Red
+                                      : ftxui::Color::Green),
+          text(" " + it->content_type) | color(cream),
+      }));
+    } else {
+      std::string method;
+      switch (it->method_type) {
+      case HttpMethodTypes::GET:  method = "GET";  break;
+      case HttpMethodTypes::HEAD: method = "HEAD"; break;
+      case HttpMethodTypes::POST: method = "POST"; break;
+      default:                    method = "???";  break;
+      }
+      rows.push_back(hbox({
+          text(" > ") | color(muted),
+          text(method + " ") | bold | color(lavender),
+          text(it->host + it->URI) | color(cream),
+      }));
+      if (!it->user_agent.empty())
+        rows.push_back(text("   UA: " + it->user_agent) | color(muted));
+    }
+    rows.push_back(separator() | color(dark_purp));
+  }
+  if (rows.empty())
+    rows.push_back(text(" No HTTP data yet") | color(muted));
+
+  return vbox({
+             text(" HTTP Requests (Esc to close)") | bold | color(lavender),
+             separator() | color(dark_purp),
+             vbox(rows) | vscroll_indicator | yframe | flex,
+         }) |
+         size(WIDTH, EQUAL, 70) | size(HEIGHT, LESS_THAN, 30) |
+         borderStyled(ROUNDED, lavender) | clear_under | center;
 }
 
 /* ── DNS popup ───────────────────────────────────────────────────────── */

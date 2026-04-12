@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <netinet/in.h>
 #include <pthread.h>
 #include <string>
 
@@ -11,6 +12,7 @@
 #include <ftxui/dom/elements.hpp>
 
 #include "components.hpp"
+#include "engine/http.hpp"
 #include "flow_types.hpp"
 
 #include "engine/dns.hpp"
@@ -116,7 +118,12 @@ int main(int argc, char *argv[]) {
   static constexpr size_t DNS_LOG_MAX = 64;
   std::deque<DnsEvent> dns_log;
 
+  /* Recent HTTP events — capped ring for display */
+  static constexpr size_t HTTP_LOG_MAX = 64;
+  std::deque<HttpEvent> http_log;
+
   bool show_dns_popup = false;
+  bool show_http_popup = false;
 
   auto screen = ftxui::ScreenInteractive::Fullscreen();
 
@@ -160,6 +167,17 @@ int main(int argc, char *argv[]) {
           dns_log.push_back(std::move(*dns));
           if (dns_log.size() > DNS_LOG_MAX)
             dns_log.pop_front();
+        }
+        /* Classify HTTP packets (port 80 TCP) */
+      } else if (ev.key.protocol == IPPROTO_TCP &&
+                 (ntohs(ev.key.src_port) == 80 ||
+                  ntohs(ev.key.dst_port) == 80) &&
+                 ev.payload_len > 0) {
+        auto http = http_parse(ev.payload, ev.payload_len);
+        if (http) {
+          http_log.push_back(std::move(*http));
+          if (http_log.size() > HTTP_LOG_MAX)
+            http_log.pop_front();
         }
       }
     }
@@ -218,9 +236,9 @@ int main(int argc, char *argv[]) {
     auto title = render_title(filter_input);
     auto table_content =
         render_flow_table(rows, flows, total_data_rows, scroll_offset);
-    auto sidebar =
-        render_sidebar(interface_name, visible_flows, flows.size(),
-                       total_packets, total_bytes, !filter_text.empty(), dns_log);
+    auto sidebar = render_sidebar(interface_name, visible_flows, flows.size(),
+                                  total_packets, total_bytes,
+                                  !filter_text.empty(), dns_log, http_log);
 
     auto content = hbox({table_content, sidebar});
     auto main_layout = vbox({
@@ -230,20 +248,34 @@ int main(int argc, char *argv[]) {
                        }) |
                        border | borderStyled(ROUNDED, theme::lavender);
 
-    return dbox({main_layout, show_dns_popup ? render_dns_popup(dns_log)
-                                             : emptyElement()});
+    return dbox({main_layout,
+                 show_dns_popup  ? render_dns_popup(dns_log)   : emptyElement(),
+                 show_http_popup ? render_http_popup(http_log) : emptyElement()});
   });
 
   /* Scroll events — mouse wheel + PageUp/PageDown always scroll the table,
    * all other keys go to the filter input */
   auto component = ftxui::CatchEvent(renderer, [&](ftxui::Event event) {
-    if (event == ftxui::Event::Character('d') && !show_dns_popup) {
+    if (event == ftxui::Event::Character('d') && !show_dns_popup &&
+        !show_http_popup) {
       show_dns_popup = true;
+      return true;
+    }
+    if (event == ftxui::Event::Character('h') && !show_http_popup &&
+        !show_dns_popup) {
+      show_http_popup = true;
       return true;
     }
     if (show_dns_popup) {
       if (event == ftxui::Event::Escape) {
         show_dns_popup = false;
+        return true;
+      }
+      return true;
+    }
+    if (show_http_popup) {
+      if (event == ftxui::Event::Escape) {
+        show_http_popup = false;
         return true;
       }
       return true;
