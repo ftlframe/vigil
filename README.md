@@ -38,7 +38,7 @@ Requires `libpcap-devel` and root/CAP_NET_RAW for raw capture.
 - [x] C++ consumer + FTXUI dashboard
 - [ ] Protocol state machines (MQTT, HTTP, DNS)
   - [x] DNS
-  - [ ] HTTP
+  - [x] HTTP
   - [ ] MQTT
 - [ ] Anomaly rules engine
 - [ ] HTTP server + web dashboard
