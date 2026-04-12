@@ -6,7 +6,7 @@ project(vigil C CXX)
 
 find_library(PCAP_LIB pcap)
 
-# ── C core library (shared by both targets) ──────────────────────────
+#── C core library (shared by both targets) ──────────────────────────
 add_library(vigil_core STATIC
   src/core/capture.c
   src/core/parse.c
@@ -22,7 +22,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_link_options(vigil_core PRIVATE -fsanitize=address,undefined)
 endif()
 
-# ── Original CLI target ──────────────────────────────────────────────
+#── Original CLI target ──────────────────────────────────────────────
 add_executable(vigil src/core/main.c)
 target_link_libraries(vigil vigil_core)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -30,7 +30,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_link_options(vigil PRIVATE -fsanitize=address,undefined)
 endif()
 
-# ── FTXUI (fetched at configure time) ────────────────────────────────
+#── FTXUI (fetched at configure time) ────────────────────────────────
 include(FetchContent)
 FetchContent_Declare(ftxui
   GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
@@ -39,9 +39,10 @@ FetchContent_Declare(ftxui
 )
 FetchContent_MakeAvailable(ftxui)
 
-# ── Engine library (C++ protocol classifiers) ───────────────────────
+#─ Engine library (C++ protocol classifiers) ───────────────────────
 add_library(vigil_engine STATIC
   src/engine/dns.cpp
+  src/engine/http.cpp
 )
 target_include_directories(vigil_engine PUBLIC src)
 target_link_libraries(vigil_engine vigil_core)
@@ -51,7 +52,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_link_options(vigil_engine PRIVATE -fsanitize=address,undefined)
 endif()
 
-# ── Dashboard target ─────────────────────────────────────────────────
+#── Dashboard target ─────────────────────────────────────────────────
 add_executable(vigil_dashboard src/ui/dashboard/main.cpp)
 target_link_libraries(vigil_dashboard vigil_core vigil_engine ftxui::screen ftxui::dom ftxui::component pthread)
 target_compile_options(vigil_dashboard PRIVATE -Wall -Wextra -Wpedantic)
